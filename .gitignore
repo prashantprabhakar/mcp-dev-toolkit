@@ -1,0 +1,4 @@
+dev-corner/
+.venv
+__pycache__/
+*.pyc
