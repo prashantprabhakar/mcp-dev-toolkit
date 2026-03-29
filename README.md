@@ -10,6 +10,14 @@ A personal MCP server that gives Claude a set of developer tools. Built in Pytho
 uv sync
 ```
 
+**Create your whitelist config:**
+
+```bash
+cp whitelist.example.json whitelist.json
+```
+
+Edit `whitelist.json` to set your allowed paths and commands. This file is gitignored — it's personal to your machine.
+
 ## Register with Claude Code
 
 Run this once from the project directory:
