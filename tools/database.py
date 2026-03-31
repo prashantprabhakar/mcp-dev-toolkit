@@ -3,16 +3,30 @@
 import os
 import sqlite3
 
+from pydantic import BaseModel, Field
+
 from tools.filesystem import _is_allowed_path
 
+# ---------------------------------------------------------------------------
+#  Structured input schema
+# ---------------------------------------------------------------------------
+class SqliteQueryInput(BaseModel):
+    """Input model for run_sqlite_query — FastMCP turns this into a JSON Schema."""
 
-def run_sqlite_query(db_path: str, query: str) -> dict:
+    db_path: str = Field(description="Absolute path to the SQLite database file")
+    query: str = Field(description="A read-only SELECT statement to execute")
+
+
+def run_sqlite_query(input: SqliteQueryInput) -> dict:
     """
     Run a read-only SELECT query against a local SQLite database.
     The database path must be inside a whitelisted directory.
     Only SELECT statements are permitted — no writes, deletes, or schema changes.
     Returns column names, rows as objects, and a total count.
     """
+    db_path = input.db_path
+    query = input.query
+
     if not query.strip().upper().startswith("SELECT"):
         return {"error": "Only SELECT queries are allowed."}
 
