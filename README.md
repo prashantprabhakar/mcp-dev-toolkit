@@ -18,12 +18,20 @@ cp whitelist.example.json whitelist.json
 
 Edit `whitelist.json` to set your allowed paths and commands. This file is gitignored — it's personal to your machine.
 
+**Create your env config:**
+
+```bash
+cp .env.example .env
+```
+
+Fill in your API keys in `.env`. This file is gitignored — never commit it.
+
 ## Register with Claude Code
 
 Run this once from the project directory:
 
 ```bash
-claude mcp add --scope user --transport stdio dev-toolkit -- uv run python E:/prashant/projects/ai/mcp/mcp-dev-toolkit/server.py
+claude mcp add --scope user --transport stdio dev-toolkit -- uv run python <path_to_server.py>
 ```
 
 Verify it's registered:

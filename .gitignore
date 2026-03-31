@@ -1,7 +1,9 @@
 dev-corner/
+.env
 .venv
 __pycache__/
 *.pyc
 
 
 whitelist.json
+.claude
