@@ -18,6 +18,7 @@ from tools.external import fetch_github_readme, search_web
 from tools.database import run_sqlite_query
 from tools.prompts import review_file, summarize_repo
 from tools.advanced import scan_directory_deep, inspect_file
+from tools.sampling import explain_error, suggest_fix
 
 mcp = FastMCP("Dev Toolkit")
 
@@ -48,6 +49,14 @@ mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(scan_directory_deep)
 
 # Multi-content return — returns [TextContent, EmbeddedResource] in one call
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(inspect_file)
+
+# ---------------------------------------------------------------------------
+# Phase 8: Sampling tools
+# These call back into the LLM mid-execution via session.create_message().
+# ---------------------------------------------------------------------------
+
+mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))(explain_error)
+mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))(suggest_fix)
 
 # ---------------------------------------------------------------------------
 # Resources (Phase 3)

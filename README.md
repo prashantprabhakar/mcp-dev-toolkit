@@ -17,6 +17,8 @@ A personal MCP server that gives Claude a set of developer tools — filesystem 
 | `run_sqlite_query` | Run a read-only SELECT against a local SQLite DB |
 | `scan_directory_deep` | Recursively count files by extension, with live progress |
 | `inspect_file` | File metadata + contents as separate content blocks |
+| `explain_error` | Explain a Python error in plain English (uses MCP Sampling) |
+| `suggest_fix` | Given code + error, return corrected code (uses MCP Sampling) |
 
 ### Resources
 
@@ -181,6 +183,7 @@ tools/
   database.py          # run_sqlite_query + SqliteQueryInput schema
   prompts.py           # review_file, summarize_repo
   advanced.py          # scan_directory_deep, inspect_file
+  sampling.py          # explain_error, suggest_fix (MCP Sampling)
 dev-corner/
   requirements.md      # phased build plan
   knowledgebase.md     # concept explanations: tools vs resources, content types, etc.
@@ -212,6 +215,6 @@ This server is built in phases to cover every MCP primitive. See [`dev-corner/re
 | 5 | Prompts + SQLite | Done |
 | 6 | Tool annotations, structured schemas, progress, multi-content | Done |
 | 7 | SSE + Streamable HTTP transport | Done |
-| 8 | Sampling (server → LLM loop-back) | Upcoming |
+| 8 | Sampling (server → LLM loop-back) | Done |
 | 9 | Resource subscriptions + file watching | Upcoming |
 | 10 | Packaging + distribution | Upcoming |
