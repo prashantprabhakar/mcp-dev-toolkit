@@ -65,8 +65,33 @@ mcp.prompt()(review_file)
 mcp.prompt()(summarize_repo)
 
 
-def main():
-    mcp.run(transport="stdio")
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="MCP Dev Toolkit server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help=(
+            "Transport to use. "
+            "'stdio' for Claude Desktop (default). "
+            "'sse' for HTTP+SSE at http://HOST:PORT/sse. "
+            "'streamable-http' for modern HTTP at http://HOST:PORT/mcp."
+        ),
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="Host for HTTP transports (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8000, help="Port for HTTP transports (default: 8000)")
+    args = parser.parse_args()
+
+    # Inject host/port into FastMCP settings when using an HTTP transport.
+    if args.transport in ("sse", "streamable-http"):
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        path = "/sse" if args.transport == "sse" else "/mcp"
+        print(f"Starting MCP Dev Toolkit over {args.transport.upper()} on http://{args.host}:{args.port}{path}")
+
+    mcp.run(transport=args.transport)
 
 
 if __name__ == "__main__":
