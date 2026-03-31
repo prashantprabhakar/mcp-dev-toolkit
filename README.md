@@ -29,6 +29,7 @@ Resources are read-only data Claude can access. They appear in the Claude Deskto
 | `project://pyproject.toml` | The current project's `pyproject.toml` |
 | `project://git-log` | Last 20 commits (`git log --oneline`) |
 | `project://directory-tree` | Recursive file tree, skipping hidden folders |
+| `project://config` | Contents of `whitelist.json` — subscribable, auto-notifies on change |
 
 ### Prompts
 
@@ -184,6 +185,7 @@ tools/
   prompts.py           # review_file, summarize_repo
   advanced.py          # scan_directory_deep, inspect_file
   sampling.py          # explain_error, suggest_fix (MCP Sampling)
+  subscriptions.py     # project://config resource + asyncio file watcher
 dev-corner/
   requirements.md      # phased build plan
   knowledgebase.md     # concept explanations: tools vs resources, content types, etc.
@@ -216,5 +218,5 @@ This server is built in phases to cover every MCP primitive. See [`dev-corner/re
 | 6 | Tool annotations, structured schemas, progress, multi-content | Done |
 | 7 | SSE + Streamable HTTP transport | Done |
 | 8 | Sampling (server → LLM loop-back) | Done |
-| 9 | Resource subscriptions + file watching | Upcoming |
+| 9 | Resource subscriptions + file watching | Done |
 | 10 | Packaging + distribution | Upcoming |

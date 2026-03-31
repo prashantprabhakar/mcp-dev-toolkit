@@ -5,6 +5,9 @@ Entry point for the MCP server. Tools, resources, and prompts are
 registered here and implemented in the tools/ directory.
 """
 
+from contextlib import asynccontextmanager
+import asyncio
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -19,60 +22,128 @@ from tools.database import run_sqlite_query
 from tools.prompts import review_file, summarize_repo
 from tools.advanced import scan_directory_deep, inspect_file
 from tools.sampling import explain_error, suggest_fix
+from tools.subscriptions import (
+    get_config_resource,
+    watch_whitelist,
+    CONFIG_RESOURCE_URI,
+)
 
-mcp = FastMCP("Dev Toolkit")
+# ---------------------------------------------------------------------------
+# Phase 9: Resource subscription state
+# Tracks which sessions have subscribed to project://config.
+# Populated by on_subscribe / drained by on_unsubscribe and the watcher.
+# ---------------------------------------------------------------------------
+_subscribed_sessions: set = set()
+
+
+# ---------------------------------------------------------------------------
+# Lifespan — starts the file-watcher background task for Phase 9
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastMCP):
+    # Patch the low-level server to advertise subscribe=True.
+    # get_capabilities() hardcodes subscribe=False, so we override it.
+    _patch_subscribe_capability(app)
+
+    # Register subscribe / unsubscribe handlers on the low-level server.
+    @app._mcp_server.subscribe_resource()
+    async def on_subscribe(uri) -> None:
+        session = app._mcp_server.request_context.session
+        _subscribed_sessions.add(session)
+
+    @app._mcp_server.unsubscribe_resource()
+    async def on_unsubscribe(uri) -> None:
+        session = app._mcp_server.request_context.session
+        _subscribed_sessions.discard(session)
+
+    # Start the background watcher.
+    watcher = asyncio.create_task(watch_whitelist(_subscribed_sessions))
+    try:
+        yield
+    finally:
+        watcher.cancel()
+        try:
+            await watcher
+        except asyncio.CancelledError:
+            pass
+
+
+def _patch_subscribe_capability(app: FastMCP) -> None:
+    """
+    Force subscribe=True in the server's advertised capabilities.
+
+    The low-level server's get_capabilities() hardcodes subscribe=False regardless
+    of whether a SubscribeRequest handler is registered. We wrap it to fix that.
+    """
+    original = app._mcp_server.get_capabilities
+
+    def patched(notification_options, experimental_capabilities):
+        caps = original(notification_options, experimental_capabilities)
+        if caps.resources is not None:
+            caps.resources.subscribe = True
+        return caps
+
+    app._mcp_server.get_capabilities = patched
+
+
+# ---------------------------------------------------------------------------
+# Server
+# ---------------------------------------------------------------------------
+
+mcp = FastMCP("Dev Toolkit", lifespan=lifespan)
 
 # ---------------------------------------------------------------------------
 # Phase 1–2: Core + Filesystem tools
-# Annotations tell clients how safe each tool is to call automatically.
 # ---------------------------------------------------------------------------
 
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(get_system_info)
-
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(read_file)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(list_directory)
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(run_command)
 
-# Phase 4: External APIs — open-world (network), not idempotent (rate limits / caching)
+# Phase 4: External APIs
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))(fetch_github_readme)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))(search_web)
 
-# Phase 5: Database — read-only SELECT only
+# Phase 5: Database
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(run_sqlite_query)
 
-# ---------------------------------------------------------------------------
 # Phase 6: Advanced tools
-# ---------------------------------------------------------------------------
-
-# Progress notifications — async, streams ctx.report_progress() while scanning
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(scan_directory_deep)
-
-# Multi-content return — returns [TextContent, EmbeddedResource] in one call
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(inspect_file)
 
-# ---------------------------------------------------------------------------
-# Phase 8: Sampling tools
-# These call back into the LLM mid-execution via session.create_message().
-# ---------------------------------------------------------------------------
-
+# Phase 8: Sampling
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))(explain_error)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))(suggest_fix)
 
 # ---------------------------------------------------------------------------
-# Resources (Phase 3)
+# Resources
 # ---------------------------------------------------------------------------
 
+# Phase 3: static project metadata
 mcp.resource("project://pyproject.toml")(get_pyproject_toml)
 mcp.resource("project://git-log")(get_git_log)
 mcp.resource("project://directory-tree")(get_directory_tree)
 
+# Phase 9: watchable config resource
+mcp.resource(
+    CONFIG_RESOURCE_URI,
+    description="The server's path and command allowlist (whitelist.json). "
+                "Subscribing to this resource delivers a notification whenever the file changes.",
+)(get_config_resource)
+
 # ---------------------------------------------------------------------------
-# Prompts (Phase 5)
+# Prompts
 # ---------------------------------------------------------------------------
 
 mcp.prompt()(review_file)
 mcp.prompt()(summarize_repo)
 
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     import argparse
@@ -93,7 +164,6 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000, help="Port for HTTP transports (default: 8000)")
     args = parser.parse_args()
 
-    # Inject host/port into FastMCP settings when using an HTTP transport.
     if args.transport in ("sse", "streamable-http"):
         mcp.settings.host = args.host
         mcp.settings.port = args.port
