@@ -11,6 +11,7 @@ import pytest
 from unittest.mock import patch
 from mcp.server.fastmcp.exceptions import ToolError
 from tools.filesystem import _is_allowed_path, read_file, list_directory, run_command
+from tools.external import fetch_github_readme
 
 
 def mock_config(allowed_paths=None, allowed_commands=None):
@@ -45,6 +46,23 @@ class TestIsAllowedPath:
         traversal = str(safe / ".." / ".." / "etc" / "passwd")
         with patch("tools.filesystem._load_config", return_value=config):
             assert _is_allowed_path(traversal) is False
+
+    def test_symlink_escape_is_blocked(self, tmp_path):
+        # A symlink inside the whitelist that points outside it must be blocked.
+        # os.path.realpath resolves symlinks before the whitelist check.
+        safe = tmp_path / "safe"
+        safe.mkdir()
+        outside = tmp_path / "outside.txt"
+        outside.write_text("secret")
+        link = safe / "escape_link"
+        try:
+            link.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlink creation not available on this system")
+        config = mock_config(allowed_paths=[str(safe)])
+        with patch("tools.filesystem._load_config", return_value=config):
+            # The symlink resolves to outside/ which is not in the whitelist
+            assert _is_allowed_path(str(link)) is False
 
     def test_empty_whitelist_blocks_everything(self, tmp_path):
         config = mock_config(allowed_paths=[])
@@ -161,3 +179,20 @@ class TestRunCommand:
         with patch("tools.filesystem._load_config", return_value=config):
             with pytest.raises(ToolError, match="not allowed"):
                 run_command("git status")
+
+
+# ---------------------------------------------------------------------------
+# fetch_github_readme — URL injection via owner/repo
+# ---------------------------------------------------------------------------
+
+class TestFetchGithubReadme:
+    @pytest.mark.parametrize("owner,repo", [
+        ("x/../../../user", "repo"),          # path traversal in owner
+        ("owner", "repo/../../../"),           # path traversal in repo
+        ("owner?admin=true", "repo"),          # query string injection
+        ("owner", "repo#fragment"),            # fragment injection
+        ("owner/extra", "repo"),               # extra path segment
+    ])
+    def test_invalid_owner_or_repo_raises_tool_error(self, owner, repo):
+        with pytest.raises(ToolError, match="Invalid owner or repo name"):
+            fetch_github_readme(owner, repo)

@@ -1,8 +1,13 @@
 """External API tools — GitHub and web search."""
 
 import os
+import re
 
 import httpx
+
+# GitHub owner and repo names may only contain alphanumerics, hyphens, underscores, and dots.
+# Reject anything else to prevent path traversal within the GitHub API URL.
+_GITHUB_NAME_RE = re.compile(r"^[\w.\-]+$")
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.logging import get_logger
@@ -17,6 +22,8 @@ def fetch_github_readme(owner: str, repo: str) -> dict:
     Optionally set the GITHUB_TOKEN environment variable to avoid rate limits.
     """
     logger.debug("fetch_github_readme: %s/%s", owner, repo)
+    if not _GITHUB_NAME_RE.match(owner) or not _GITHUB_NAME_RE.match(repo):
+        raise ToolError(f"Invalid owner or repo name: '{owner}/{repo}'. Only alphanumerics, hyphens, underscores, and dots are allowed.")
     headers = {"Accept": "application/vnd.github.v3.raw"}
     token = os.environ.get("GITHUB_TOKEN")
     if token:
