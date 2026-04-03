@@ -8,6 +8,8 @@ registered here and implemented in the tools/ directory.
 from contextlib import asynccontextmanager
 import asyncio
 
+import os
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -15,7 +17,10 @@ from mcp.server.fastmcp.utilities.logging import get_logger
 logger = get_logger(__name__)
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.auth.settings import AuthSettings
 from mcp.types import ToolAnnotations
+
+from auth import StaticTokenVerifier
 
 from tools.system import get_system_info
 from tools.filesystem import read_file, list_directory, run_command, write_file
@@ -94,7 +99,24 @@ def _patch_subscribe_capability(app: FastMCP) -> None:
 # Server
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("Dev Toolkit", lifespan=lifespan)
+# ---------------------------------------------------------------------------
+# Auth — applies to HTTP transports only. stdio is unaffected.
+#
+# Required env vars (only needed for HTTP transport):
+#   MCP_READ_TOKEN  — grants mcp:read scope (all read-only tools)
+#   MCP_ADMIN_TOKEN — grants mcp:read + mcp:admin scope (run_command etc.)
+#
+# The server URL is used in WWW-Authenticate headers and protected resource
+# metadata. Override with MCP_SERVER_URL if running on a non-default port.
+# ---------------------------------------------------------------------------
+_server_url = os.environ.get("MCP_SERVER_URL", "http://127.0.0.1:8000")
+_auth_settings = AuthSettings(
+    issuer_url=_server_url,
+    resource_server_url=f"{_server_url}/mcp",
+    required_scopes=["mcp:read"],
+)
+
+mcp = FastMCP("Dev Toolkit", lifespan=lifespan, token_verifier=StaticTokenVerifier(), auth=_auth_settings)
 
 # ---------------------------------------------------------------------------
 # Phase 1–2: Core + Filesystem tools

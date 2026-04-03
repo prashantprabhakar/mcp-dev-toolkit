@@ -13,6 +13,8 @@ from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.logging import get_logger
 
+from auth import require_scope
+
 logger = get_logger(__name__)
 
 _WHITELIST_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "whitelist.json"))
@@ -77,6 +79,7 @@ def list_directory(path: str) -> dict:
         raise ToolError(f"Could not list directory: {e}") from e
 
 
+@require_scope("mcp:write")
 async def write_file(content: str, ctx: Context, path: str | None = None) -> dict:
     """
     Write content to a file.
@@ -172,10 +175,12 @@ async def write_file(content: str, ctx: Context, path: str | None = None) -> dic
         raise ToolError(f"Could not write file: {e}") from e
 
 
+@require_scope("mcp:admin")
 def run_command(command: str) -> dict:
     """
     Run a shell command from the allowlist and return its output.
     Only commands explicitly listed in whitelist.json are permitted.
+    Requires mcp:admin scope when called over HTTP transport.
     """
     logger.debug("run_command: %s", command)
     if not _is_allowed_command(command):
