@@ -21,24 +21,31 @@ from tools.filesystem import _is_allowed_path
 logger = get_logger(__name__)
 
 
-async def scan_directory_deep(path: str, ctx: Context) -> dict:
+async def scan_directory_deep(path: str, ctx: Context, exclude: list[str] | None = None) -> dict:
     """
     Recursively scan a directory and count all files grouped by extension.
     Streams progress back to the client as each sub-directory is visited.
     The path must be inside a whitelisted directory.
+
+    exclude: optional list of directory names to skip (e.g. ["__pycache__", "dev-corner"]).
+             Always skips hidden dirs, .venv, and node_modules regardless.
     """
-    logger.debug("scan_directory_deep: %s", path)
+    logger.debug("scan_directory_deep: %s (exclude=%s)", path, exclude)
     if not _is_allowed_path(path):
         logger.warning("scan_directory_deep: access denied for %s", path)
         raise ToolError(f"Access denied: '{path}' is not in the whitelist.")
     if not os.path.isdir(path):
         raise ToolError(f"Not a directory: '{path}'")
 
+    always_excluded = {"__pycache__", ".venv", "node_modules"}
+    user_excluded = set(exclude) if exclude else set()
+    skip = always_excluded | user_excluded
+
     walk_entries: list[tuple[str, list[str], list[str]]] = []
     for root, dirs, files in os.walk(path):
         dirs[:] = sorted(
             d for d in dirs
-            if not d.startswith(".") and d not in ("__pycache__", ".venv", "node_modules")
+            if not d.startswith(".") and d not in skip
         )
         walk_entries.append((root, list(dirs), list(files)))
 
