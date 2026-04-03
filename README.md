@@ -163,7 +163,50 @@ Add to `claude_desktop_config.json`:
 
 ---
 
-## Test it
+## MCP Inspector
+
+The MCP Inspector is a browser-based tool for testing your server interactively — without Claude in the loop. Think of it like Postman for MCP: you call tools, read resources, and invoke prompts directly, and see the raw JSON-RPC messages going back and forth.
+
+### With stdio transport
+
+```bash
+npx @modelcontextprotocol/inspector uv run python server.py
+```
+
+This spawns your server as a child process (exactly like Claude Desktop does) and opens the Inspector UI in your browser at `http://localhost:5173`.
+
+### With HTTP transport
+
+Start the server first:
+
+```bash
+uv run python server.py --transport streamable-http --port 8000
+```
+
+Then connect the Inspector to it:
+
+```bash
+npx @modelcontextprotocol/inspector --url http://127.0.0.1:8000/mcp
+```
+
+Or for SSE:
+
+```bash
+npx @modelcontextprotocol/inspector --url http://127.0.0.1:8000/sse
+```
+
+### What you can do in the UI
+
+- **Tools tab** — pick any tool, fill in its arguments, call it, see the result
+- **Resources tab** — list all resources, read any by URI, subscribe to `project://config`
+- **Prompts tab** — invoke any prompt template with arguments
+- **History / Messages panel** — every JSON-RPC request and response in full, in real time
+
+Use the Inspector every time you add a new tool — it's faster than starting a full Claude session just to test a single tool call.
+
+---
+
+## Test it with Claude
 
 Start a Claude session and try:
 
