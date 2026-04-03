@@ -7,7 +7,6 @@ All tools check the requested path against whitelist.json before touching anythi
 import json
 import os
 import subprocess
-
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context
@@ -78,33 +77,92 @@ def list_directory(path: str) -> dict:
         raise ToolError(f"Could not list directory: {e}") from e
 
 
-class _WriteConfirmation(BaseModel):
-    confirm: bool = Field(description="Type true to confirm the write, false to cancel.")
-
-
-async def write_file(path: str, content: str, ctx: Context) -> dict:
+async def write_file(content: str, ctx: Context, path: str | None = None) -> dict:
     """
-    Write content to a file at the given path.
-    The path must be inside a whitelisted directory.
-    Asks the user to confirm before writing — the file will be created or overwritten.
+    Write content to a file.
+    If path is not provided, guides the user step-by-step:
+      1. Choose a target directory from the whitelist (dropdown)
+      2. Enter a filename (free text)
+      3. Confirm the write (boolean)
+    If path is provided, goes straight to the confirmation step.
+    The final path must be inside a whitelisted directory.
     """
+
+    # ------------------------------------------------------------------
+    # Step 1 & 2 — elicit path if not provided
+    # ------------------------------------------------------------------
+    if path is None:
+        allowed = _load_config()["allowed_paths"]
+        if not allowed:
+            raise ToolError("No directories are whitelisted. Add paths to whitelist.json first.")
+
+        # Elicitation only allows primitive types — no Literal enums or nested models.
+        # Represent options as a numbered list in the description; user picks an int.
+        options_text = "\n".join(f"{i + 1}. {d}" for i, d in enumerate(allowed))
+
+        class DirectoryChoice(BaseModel):
+            choice: int = Field(
+                description=f"Enter the number of the target directory:\n{options_text}"
+            )
+
+        dir_result = await ctx.elicit("Choose a target directory:", DirectoryChoice)
+        if dir_result.action != "accept":
+            return {"status": "cancelled"}
+
+        idx = dir_result.data.choice - 1
+        if not (0 <= idx < len(allowed)):
+            raise ToolError(f"Invalid choice: {dir_result.data.choice}. Enter a number between 1 and {len(allowed)}.")
+        chosen_dir = allowed[idx]
+
+        # Free text: ask for filename
+        class FilenameInput(BaseModel):
+            filename: str = Field(
+                description="File name to create (e.g. notes.md). No path separators — just the name."
+            )
+
+        name_result = await ctx.elicit(
+            f"Enter a filename to create inside '{chosen_dir}':", FilenameInput
+        )
+        if name_result.action != "accept":
+            return {"status": "cancelled"}
+
+        filename = name_result.data.filename.strip()
+        if not filename or any(sep in filename for sep in (os.sep, "/")):
+            raise ToolError("Filename must be a single name with no path separators (e.g. notes.md).")
+
+        path = os.path.join(chosen_dir, filename)
+
+    # ------------------------------------------------------------------
+    # Whitelist check (applies whether path came from user or elicitation)
+    # ------------------------------------------------------------------
     logger.debug("write_file: %s (%d bytes)", path, len(content))
     if not _is_allowed_path(path):
         logger.warning("write_file: access denied for %s", path)
         raise ToolError(f"Access denied: '{path}' is not in the whitelist.")
 
+    # ------------------------------------------------------------------
+    # Step 3 — confirm (boolean)
+    # ------------------------------------------------------------------
+    class WriteConfirmation(BaseModel):
+        confirm: bool = Field(description="true to write the file, false to cancel.")
+
     action_label = "overwrite" if os.path.isfile(path) else "create"
-    result = await ctx.elicit(
+    confirm_result = await ctx.elicit(
         f"Write {len(content):,} bytes to '{path}' ({action_label})?",
-        _WriteConfirmation,
+        WriteConfirmation,
     )
 
-    if result.action != "accept" or not result.data.confirm:
+    if confirm_result.action != "accept" or not confirm_result.data.confirm:
         logger.debug("write_file: cancelled by user for %s", path)
         return {"status": "cancelled", "path": path}
 
+    # ------------------------------------------------------------------
+    # Write
+    # ------------------------------------------------------------------
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         logger.debug("write_file: wrote %d bytes to %s", len(content), path)
