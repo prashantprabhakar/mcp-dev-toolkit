@@ -3,6 +3,8 @@
 import os
 import subprocess
 
+from mcp.server.fastmcp.exceptions import ToolError
+
 
 def get_pyproject_toml() -> str:
     """Contents of pyproject.toml from the current working directory."""
@@ -23,6 +25,26 @@ def get_git_log() -> str:
         return result.stdout or result.stderr or "No commits found."
     except Exception as e:
         return str(e)
+
+
+def get_project_file(filename: str) -> str:
+    """
+    Read a file from the project root directory by name.
+    URI template: project://files/{filename}
+
+    filename must be a single name or relative path with no leading slash
+    (e.g. 'server.py', 'whitelist.json'). Subdirectory access like
+    'tools/filesystem.py' is not supported — the template variable cannot
+    contain path separators due to URI template matching rules.
+    """
+    path = os.path.normpath(os.path.join(os.getcwd(), filename))
+    # Block traversal: resolved path must stay inside cwd
+    if not path.startswith(os.path.normpath(os.getcwd())):
+        raise ToolError(f"Access denied: '{filename}' resolves outside the project root.")
+    if not os.path.isfile(path):
+        raise ValueError(f"File not found in project root: '{filename}'")
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return f.read()
 
 
 def get_directory_tree() -> str:

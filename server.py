@@ -18,8 +18,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from tools.system import get_system_info
-from tools.filesystem import read_file, list_directory, run_command
-from tools.resources import get_pyproject_toml, get_git_log, get_directory_tree
+from tools.filesystem import read_file, list_directory, run_command, write_file
+from tools.resources import get_pyproject_toml, get_git_log, get_directory_tree, get_project_file
 from tools.external import fetch_github_readme, search_web
 from tools.database import run_sqlite_query
 from tools.prompts import review_file, summarize_repo
@@ -104,6 +104,7 @@ mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(ge
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(read_file)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))(list_directory)
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(run_command)
+mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(write_file)
 
 # Phase 4: External APIs
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))(fetch_github_readme)
@@ -128,6 +129,9 @@ mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True))(sug
 mcp.resource("project://pyproject.toml")(get_pyproject_toml)
 mcp.resource("project://git-log")(get_git_log)
 mcp.resource("project://directory-tree")(get_directory_tree)
+
+# Phase 13: resource template — parameterized URI, reads any file in the project root
+mcp.resource("project://files/{filename}")(get_project_file)
 
 # Phase 9: watchable config resource
 mcp.resource(

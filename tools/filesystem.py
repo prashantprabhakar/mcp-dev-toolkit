@@ -8,6 +8,9 @@ import json
 import os
 import subprocess
 
+from pydantic import BaseModel, Field
+
+from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.logging import get_logger
 
@@ -73,6 +76,42 @@ def list_directory(path: str) -> dict:
     except Exception as e:
         logger.error("list_directory: unexpected error listing %s: %s", path, e)
         raise ToolError(f"Could not list directory: {e}") from e
+
+
+class _WriteConfirmation(BaseModel):
+    confirm: bool = Field(description="Type true to confirm the write, false to cancel.")
+
+
+async def write_file(path: str, content: str, ctx: Context) -> dict:
+    """
+    Write content to a file at the given path.
+    The path must be inside a whitelisted directory.
+    Asks the user to confirm before writing — the file will be created or overwritten.
+    """
+    logger.debug("write_file: %s (%d bytes)", path, len(content))
+    if not _is_allowed_path(path):
+        logger.warning("write_file: access denied for %s", path)
+        raise ToolError(f"Access denied: '{path}' is not in the whitelist.")
+
+    action_label = "overwrite" if os.path.isfile(path) else "create"
+    result = await ctx.elicit(
+        f"Write {len(content):,} bytes to '{path}' ({action_label})?",
+        _WriteConfirmation,
+    )
+
+    if result.action != "accept" or not result.data.confirm:
+        logger.debug("write_file: cancelled by user for %s", path)
+        return {"status": "cancelled", "path": path}
+
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        logger.debug("write_file: wrote %d bytes to %s", len(content), path)
+        return {"status": "written", "path": path, "bytes": len(content)}
+    except Exception as e:
+        logger.error("write_file: failed to write %s: %s", path, e)
+        raise ToolError(f"Could not write file: {e}") from e
 
 
 def run_command(command: str) -> dict:
