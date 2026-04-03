@@ -1,25 +1,25 @@
 """
 Advanced tools — Phase 6
 
-Covers two new MCP concepts demonstrated here:
+Demonstrates:
   1. Progress notifications  — scan_directory_deep streams ctx.report_progress()
   2. Multi-content return    — inspect_file returns [TextContent, EmbeddedResource]
 
-Structured input schema (Pydantic model) is demonstrated in tools/database.py
-via SqliteQueryInput — the right home for a model is next to the tool it belongs to.
+Structured input schema (Pydantic model) is in tools/database.py via SqliteQueryInput —
+the right home for a model is next to the tool it belongs to.
 """
 
 import os
 
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.types import EmbeddedResource, TextContent, TextResourceContents
 
 from tools.filesystem import _is_allowed_path
 
+logger = get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# 1. Progress notifications
-# ---------------------------------------------------------------------------
 
 async def scan_directory_deep(path: str, ctx: Context) -> dict:
     """
@@ -27,13 +27,13 @@ async def scan_directory_deep(path: str, ctx: Context) -> dict:
     Streams progress back to the client as each sub-directory is visited.
     The path must be inside a whitelisted directory.
     """
+    logger.debug("scan_directory_deep: %s", path)
     if not _is_allowed_path(path):
-        return {"error": f"Access denied: {path} is not in the whitelist."}
+        logger.warning("scan_directory_deep: access denied for %s", path)
+        raise ToolError(f"Access denied: '{path}' is not in the whitelist.")
     if not os.path.isdir(path):
-        return {"error": f"Not a directory: {path}"}
+        raise ToolError(f"Not a directory: '{path}'")
 
-    # Collect all (root, dirs, files) entries first so we know the total.
-    # Skip hidden folders, __pycache__, .venv, node_modules.
     walk_entries: list[tuple[str, list[str], list[str]]] = []
     for root, dirs, files in os.walk(path):
         dirs[:] = sorted(
@@ -49,15 +49,13 @@ async def scan_directory_deep(path: str, ctx: Context) -> dict:
     for i, (root, _dirs, files) in enumerate(walk_entries):
         folder_name = os.path.basename(root) or root
         await ctx.report_progress(i + 1, total, message=f"Scanning {folder_name}/")
-
         for filename in files:
             total_files += 1
             ext = os.path.splitext(filename)[1].lower() or "(no extension)"
             ext_counts[ext] = ext_counts.get(ext, 0) + 1
 
-    # Sort by count descending so the most common types appear first.
     by_extension = dict(sorted(ext_counts.items(), key=lambda x: x[1], reverse=True))
-
+    logger.debug("scan_directory_deep: %d files across %d dirs in %s", total_files, total, path)
     return {
         "path": path,
         "total_dirs": total,
@@ -66,23 +64,20 @@ async def scan_directory_deep(path: str, ctx: Context) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# 3. Multi-content return (TextContent + EmbeddedResource)
-# ---------------------------------------------------------------------------
-
 def inspect_file(path: str) -> list[TextContent | EmbeddedResource]:
     """
     Inspect a file and return two content blocks:
       - TextContent  : human-readable metadata (name, size, line count, extension)
       - EmbeddedResource : the actual file contents embedded inline
 
-    This demonstrates returning multiple content types from a single tool call.
     The path must be inside a whitelisted directory.
     """
+    logger.debug("inspect_file: %s", path)
     if not _is_allowed_path(path):
-        return [TextContent(type="text", text=f"Access denied: {path} is not in the whitelist.")]
+        logger.warning("inspect_file: access denied for %s", path)
+        raise ToolError(f"Access denied: '{path}' is not in the whitelist.")
     if not os.path.isfile(path):
-        return [TextContent(type="text", text=f"File not found: {path}")]
+        raise ToolError(f"File not found: '{path}'")
 
     try:
         stat = os.stat(path)
@@ -112,5 +107,8 @@ def inspect_file(path: str) -> list[TextContent | EmbeddedResource]:
                 ),
             ),
         ]
+    except ToolError:
+        raise
     except Exception as e:
-        return [TextContent(type="text", text=f"Error reading file: {e}")]
+        logger.error("inspect_file: unexpected error reading %s: %s", path, e)
+        raise ToolError(f"Could not inspect file: {e}") from e

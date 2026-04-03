@@ -1,13 +1,17 @@
 """
 Filesystem tools
 
-All tools here check the requested path against whitelist.json
-before touching anything on disk.
+All tools check the requested path against whitelist.json before touching anything on disk.
 """
 
 import json
 import os
 import subprocess
+
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.utilities.logging import get_logger
+
+logger = get_logger(__name__)
 
 _WHITELIST_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "whitelist.json"))
 
@@ -27,59 +31,60 @@ def _is_allowed_command(command: str) -> bool:
     return command.strip() in _load_config()["allowed_commands"]
 
 
-# ---------------------------------------------------------------------------
-# Tools
-# ---------------------------------------------------------------------------
-
 def read_file(path: str) -> dict:
     """
     Read and return the contents of a file at the given path.
     The path must be inside one of the whitelisted directories in whitelist.json.
-    Returns the file contents as a string, or an error if access is denied or the file doesn't exist.
     """
+    logger.debug("read_file: %s", path)
     if not _is_allowed_path(path):
-        return {"error": f"Access denied: {path} is not in the whitelist."}
+        logger.warning("read_file: access denied for %s", path)
+        raise ToolError(f"Access denied: '{path}' is not in the whitelist.")
     if not os.path.isfile(path):
-        return {"error": f"File not found: {path}"}
+        raise ToolError(f"File not found: '{path}'")
     try:
         with open(path, encoding="utf-8") as f:
-            return {"path": path, "contents": f.read()}
+            contents = f.read()
+        logger.debug("read_file: read %d bytes from %s", len(contents), path)
+        return {"path": path, "contents": contents}
     except Exception as e:
-        return {"error": str(e)}
+        logger.error("read_file: unexpected error reading %s: %s", path, e)
+        raise ToolError(f"Could not read file: {e}") from e
 
 
 def list_directory(path: str) -> dict:
     """
     List files and folders in the given directory path.
     The path must be inside one of the whitelisted directories in whitelist.json.
-    Returns a list of entries with their name and type (file or directory).
     """
+    logger.debug("list_directory: %s", path)
     if not _is_allowed_path(path):
-        return {"error": f"Access denied: {path} is not in the whitelist."}
+        logger.warning("list_directory: access denied for %s", path)
+        raise ToolError(f"Access denied: '{path}' is not in the whitelist.")
     if not os.path.isdir(path):
-        return {"error": f"Directory not found: {path}"}
+        raise ToolError(f"Directory not found: '{path}'")
     try:
         entries = []
         for name in sorted(os.listdir(path)):
             full = os.path.join(path, name)
-            entries.append({
-                "name": name,
-                "type": "directory" if os.path.isdir(full) else "file",
-            })
+            entries.append({"name": name, "type": "directory" if os.path.isdir(full) else "file"})
+        logger.debug("list_directory: %d entries in %s", len(entries), path)
         return {"path": path, "entries": entries}
     except Exception as e:
-        return {"error": str(e)}
+        logger.error("list_directory: unexpected error listing %s: %s", path, e)
+        raise ToolError(f"Could not list directory: {e}") from e
 
 
 def run_command(command: str) -> dict:
     """
     Run a shell command from the allowlist and return its output.
-    Only commands explicitly listed in the allowlist are permitted.
-    Returns stdout, stderr, and the exit code.
+    Only commands explicitly listed in whitelist.json are permitted.
     """
+    logger.debug("run_command: %s", command)
     if not _is_allowed_command(command):
         allowed = _load_config()["allowed_commands"]
-        return {"error": f"Command not allowed: '{command}'. Allowed commands: {allowed}"}
+        logger.warning("run_command: rejected command: %s", command)
+        raise ToolError(f"Command not allowed: '{command}'. Allowed: {allowed}")
     try:
         result = subprocess.run(
             command,
@@ -88,6 +93,7 @@ def run_command(command: str) -> dict:
             text=True,
             timeout=10,
         )
+        logger.debug("run_command: exit_code=%d for '%s'", result.returncode, command)
         return {
             "command": command,
             "stdout": result.stdout,
@@ -95,6 +101,8 @@ def run_command(command: str) -> dict:
             "exit_code": result.returncode,
         }
     except subprocess.TimeoutExpired:
-        return {"error": f"Command timed out: {command}"}
+        logger.warning("run_command: timed out: %s", command)
+        raise ToolError(f"Command timed out after 10 seconds: '{command}'")
     except Exception as e:
-        return {"error": str(e)}
+        logger.error("run_command: unexpected error for '%s': %s", command, e)
+        raise ToolError(f"Command failed: {e}") from e

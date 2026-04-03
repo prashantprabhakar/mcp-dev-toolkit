@@ -11,6 +11,9 @@ import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 
+from mcp.server.fastmcp.utilities.logging import get_logger
+logger = get_logger(__name__)
+
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
@@ -168,7 +171,7 @@ def main() -> None:
         mcp.settings.host = args.host
         mcp.settings.port = args.port
         path = "/sse" if args.transport == "sse" else "/mcp"
-        print(f"Starting MCP Dev Toolkit over {args.transport.upper()} on http://{args.host}:{args.port}{path}")
+        logger.info("Starting MCP Dev Toolkit over %s on http://%s:%d%s", args.transport.upper(), args.host, args.port, path)
 
     mcp.run(transport=args.transport)
 

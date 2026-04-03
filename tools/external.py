@@ -1,7 +1,13 @@
 """External API tools — GitHub and web search."""
 
 import os
+
 import httpx
+
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.utilities.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def fetch_github_readme(owner: str, repo: str) -> dict:
@@ -10,11 +16,11 @@ def fetch_github_readme(owner: str, repo: str) -> dict:
     Provide the owner (username or org) and repo name.
     Optionally set the GITHUB_TOKEN environment variable to avoid rate limits.
     """
+    logger.debug("fetch_github_readme: %s/%s", owner, repo)
     headers = {"Accept": "application/vnd.github.v3.raw"}
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
-
     try:
         with httpx.Client() as client:
             resp = client.get(
@@ -23,10 +29,15 @@ def fetch_github_readme(owner: str, repo: str) -> dict:
                 timeout=10,
             )
         if resp.status_code == 200:
+            logger.debug("fetch_github_readme: got %d bytes for %s/%s", len(resp.text), owner, repo)
             return {"owner": owner, "repo": repo, "readme": resp.text}
-        return {"error": f"GitHub API returned {resp.status_code} for {owner}/{repo}"}
+        logger.warning("fetch_github_readme: GitHub returned %d for %s/%s", resp.status_code, owner, repo)
+        raise ToolError(f"GitHub API returned {resp.status_code} for '{owner}/{repo}'.")
+    except ToolError:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        logger.error("fetch_github_readme: unexpected error for %s/%s: %s", owner, repo, e)
+        raise ToolError(f"Request failed: {e}") from e
 
 
 def search_web(query: str) -> dict:
@@ -35,10 +46,10 @@ def search_web(query: str) -> dict:
     Requires the BRAVE_API_KEY environment variable to be set.
     Returns the top 5 results with title, URL, and description.
     """
+    logger.debug("search_web: %s", query)
     api_key = os.environ.get("BRAVE_API_KEY")
     if not api_key:
-        return {"error": "BRAVE_API_KEY environment variable is not set."}
-
+        raise ToolError("BRAVE_API_KEY environment variable is not set.")
     try:
         with httpx.Client() as client:
             resp = client.get(
@@ -52,8 +63,8 @@ def search_web(query: str) -> dict:
                 timeout=10,
             )
         if resp.status_code != 200:
-            return {"error": f"Brave API returned {resp.status_code}"}
-
+            logger.warning("search_web: Brave API returned %d", resp.status_code)
+            raise ToolError(f"Brave Search API returned {resp.status_code}.")
         results = [
             {
                 "title": item.get("title"),
@@ -62,6 +73,10 @@ def search_web(query: str) -> dict:
             }
             for item in resp.json().get("web", {}).get("results", [])
         ]
+        logger.debug("search_web: %d results for '%s'", len(results), query)
         return {"query": query, "results": results}
+    except ToolError:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        logger.error("search_web: unexpected error for '%s': %s", query, e)
+        raise ToolError(f"Request failed: {e}") from e

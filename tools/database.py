@@ -5,7 +5,12 @@ import sqlite3
 
 from pydantic import BaseModel, Field
 
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.utilities.logging import get_logger
+
 from tools.filesystem import _is_allowed_path
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 #  Structured input schema
@@ -27,14 +32,17 @@ def run_sqlite_query(input: SqliteQueryInput) -> dict:
     db_path = input.db_path
     query = input.query
 
+    logger.debug("run_sqlite_query: %s | %s", db_path, query[:80])
+
     if not query.strip().upper().startswith("SELECT"):
-        return {"error": "Only SELECT queries are allowed."}
+        raise ToolError("Only SELECT queries are allowed.")
 
     if not _is_allowed_path(db_path):
-        return {"error": f"Access denied: {db_path} is not in the whitelist."}
+        logger.warning("run_sqlite_query: access denied for %s", db_path)
+        raise ToolError(f"Access denied: '{db_path}' is not in the whitelist.")
 
     if not os.path.isfile(db_path):
-        return {"error": f"Database not found: {db_path}"}
+        raise ToolError(f"Database not found: '{db_path}'")
 
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -43,6 +51,8 @@ def run_sqlite_query(input: SqliteQueryInput) -> dict:
         columns = [desc[0] for desc in cursor.description] if cursor.description else []
         rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
         conn.close()
+        logger.debug("run_sqlite_query: returned %d rows", len(rows))
         return {"columns": columns, "rows": rows, "count": len(rows)}
     except Exception as e:
-        return {"error": str(e)}
+        logger.error("run_sqlite_query: query failed: %s", e)
+        raise ToolError(f"Query failed: {e}") from e

@@ -50,6 +50,12 @@ Reusable prompt templates surfaced as slash commands in Claude Desktop.
 uv sync
 ```
 
+Or install directly from the repo and run with `uvx`:
+
+```bash
+uvx --from git+https://github.com/prashantprabhakar/mcp-dev-toolkit mcp-dev-toolkit
+```
+
 **Create your whitelist config:**
 
 ```bash
@@ -187,8 +193,6 @@ tools/
   sampling.py          # explain_error, suggest_fix (MCP Sampling)
   subscriptions.py     # project://config resource + asyncio file watcher
 dev-corner/
-  requirements.md      # phased build plan
-  knowledgebase.md     # concept explanations: tools vs resources, content types, etc.
 ```
 
 ---
@@ -219,4 +223,4 @@ This server is built in phases to cover every MCP primitive. See [`dev-corner/re
 | 7 | SSE + Streamable HTTP transport | Done |
 | 8 | Sampling (server → LLM loop-back) | Done |
 | 9 | Resource subscriptions + file watching | Done |
-| 10 | Packaging + distribution | Upcoming |
+| 10 | Packaging, logging, error handling | Done |
